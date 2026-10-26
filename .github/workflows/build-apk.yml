@@ -7,9 +7,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -18,7 +20,6 @@ jobs:
 
       - name: Android SDK parts
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKM" --licenses > /dev/null || true
           "$SDKM" "platform-tools" "build-tools;34.0.0" "platforms;android-34"
@@ -27,6 +28,22 @@ jobs:
         run: |
           unzip -q project.zip -d game
           echo "PROJ=$(dirname "$(find game -name project.godot | head -1)")" >> $GITHUB_ENV
+
+      - name: Set update checker (repo and release tag)
+        run: |
+          REPO="${{ github.repository }}"
+          CFG="$PROJ/scripts/cfg.gd"
+          TAG=""
+          if [ "${{ github.ref_type }}" = "tag" ]; then TAG="${{ github.ref_name }}"; fi
+          if [ -z "$TAG" ]; then
+            TAG=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/releases/latest" | python3 -c "import sys,json;print(json.load(sys.stdin).get('tag_name',''))" 2>/dev/null || true)
+          fi
+          if [ -z "$TAG" ]; then TAG="v2.0"; fi
+          echo "Version tag: $TAG"
+          sed -i "s|^const VERSION_NAME := .*|const VERSION_NAME := \"$TAG\"|" "$CFG"
+          sed -i "s|^const UPDATE_URL := .*|const UPDATE_URL := \"https://api.github.com/repos/$REPO/releases/latest\"|" "$CFG"
+          sed -i "s|^const REPO_URL := .*|const REPO_URL := \"https://github.com/$REPO/releases\"|" "$CFG"
+          grep -n "VERSION_NAME\|UPDATE_URL\|REPO_URL" "$CFG"
 
       - name: Install Godot 4.3 and export templates
         run: |
